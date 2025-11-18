@@ -1,39 +1,129 @@
-import { useEffect, useState } from "react";
-import reactLogo from "./assets/react.svg";
-import viteLogo from "/vite.svg";
-import "./App.css";
+import React, { useEffect, useState } from "react";
+import Search from "./components/Search.jsx";
+import Spinner from "./components/spinner.jsx";
+import MovieCard from "./components/MovieCard.jsx";
+import { useDebounce } from "react-use";
+import { getTrendingMovies, updateSearchCount } from "./appwrite.js";
 
-const Card = ({ title }) => {
-  const [count, setCount] = useState(0);
-  const [hasLiked, setHasLiked] = useState(false);
-  useEffect(() => {
-    console.log(`${title} has been liked: ${hasLiked}`);
-  }, [hasLiked]);
+const API_BASE_URL = "https://api.themoviedb.org/3";
 
-  return (
-    <div
-      className="card"
-      onClick={() => setCount((prevState) => prevState + 1)}>
-      <h2>
-        {title} <br /> {count || null}
-      </h2>
+const API_KEY = import.meta.env.VITE_TMDB_API_KEY;
 
-      <button onClick={() => setHasLiked(!hasLiked)}>
-        {hasLiked ? "❤️" : "🤍"}
-      </button>
-    </div>
-  );
+const API_OPTIONS = {
+  method: "GET",
+  headers: {
+    accept: "application/json",
+    Authorization: `Bearer ${API_KEY}`,
+  },
 };
 
 const App = () => {
-  return (
-    <div className="card-container">
-      <h2>Functional Arrow Component</h2>
+  const [searchTerm, setSearchTerm] = useState("");
+  const [errorMessage, seterrorMessage] = useState("");
+  const [movieList, setmovieList] = useState([]);
+  const [trendingMovies, settrendingMovies] = useState([]);
+  const [isLoading, setisLoading] = useState(false);
+  const [debouncedSearchTerm, setdebouncedSearchTerm] = useState("");
 
-      <Card title="Star Wars" rating={5} isCool={true} />
-      <Card title="Avatar" />
-      <Card title="The Lion King" />
-    </div>
+  useDebounce(() => setdebouncedSearchTerm(searchTerm), 500, [searchTerm]);
+
+  const fetchMovies = async (query = "") => {
+    setisLoading(true);
+    seterrorMessage("");
+
+    try {
+      const endpoint = query
+        ? `${API_BASE_URL}/search/movie?query=${encodeURIComponent(query)}`
+        : `${API_BASE_URL}/discover/movie?sort_by=popularity.desc`;
+
+      const response = await fetch(endpoint, API_OPTIONS);
+      if (!response.ok) {
+        throw new Error("Failed to fetch movies");
+      }
+
+      const data = await response.json();
+
+      if (data.response == "False") {
+        seterrorMessage(data.Error || "Failed to fetch movies");
+        setmovieList([]);
+        return;
+      }
+
+      setmovieList(data.results || []);
+
+      if (query && data.results.length > 0) {
+        await updateSearchCount(query, data.results[0]);
+      }
+    } catch (error) {
+      console.error(`Error Fetching Movies ${error}`);
+      seterrorMessage("Error fetching movie. Please try again later.");
+    } finally {
+      setisLoading(false);
+    }
+  };
+
+  const loadTrendingMovies = async () => {
+    try {
+      const movies = await getTrendingMovies();
+
+      settrendingMovies(movies);
+    } catch (error) {
+      console.error(`Error fetching trending movies: ${error}`);
+    }
+  };
+
+  useEffect(() => {
+    fetchMovies(debouncedSearchTerm);
+  }, [debouncedSearchTerm]);
+
+  useEffect(() => {
+    loadTrendingMovies();
+  }, []);
+
+  return (
+    <main>
+      <div className="pattern" />
+      <div className="wrapper">
+        <header>
+          <img src="./hero-img.png" alt="Hero Banner" />
+          <h1>
+            Find <span className="text-gradient">Movies</span> You'll Enjoy
+            Without the Hassle
+          </h1>
+          <Search searchTerm={searchTerm} setSearchTerm={setSearchTerm} />
+        </header>
+
+        {trendingMovies.length > 0 && (
+          <section className="trending">
+            <h2>Trending Movies</h2>
+            <ul>
+              {trendingMovies.map((movie, index) => (
+                <li key={movie.$id}>
+                  <p>{index + 1}</p>
+                  <img src={movie.poster_url} alt={movie.title} />
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        <section className="all-movies">
+          <h2>All Movies</h2>
+
+          {isLoading ? (
+            <Spinner />
+          ) : errorMessage ? (
+            <p className="text-red-500">{errorMessage}</p>
+          ) : (
+            <ul>
+              {movieList.map((movie) => (
+                <MovieCard key={movie.id} movie={movie} />
+              ))}
+            </ul>
+          )}
+        </section>
+      </div>
+    </main>
   );
 };
 
